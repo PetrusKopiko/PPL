@@ -11,3 +11,8 @@ git status
 git add
 git commit
 ```
+
+Some basic Git commands are:
+```
+git commit
+```
