@@ -1,5 +1,4 @@
-int main(){
-  // output sakit
-  
-  return 0;
+void main(){
+  int a = 0;
+  if (a>0) cout << "yes" << endl;
 }
