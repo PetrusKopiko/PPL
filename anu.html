@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Segitiga Tessellation dan Twist</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            display: block;
+            margin: 10px auto;
+        }
+        h1 {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Segitiga Tessellation dan Twist</h1>
+    <div>
+        <label>
+            <input id="rotate" type="radio" name="rotationMode" value="normal" checked onchange="setTwist(this.value)">
+            Normal
+        </label>
+        <label>
+            <input id="twist" type="radio" name="rotationMode" value="twist" onchange="setTwist(this.value)">
+            Twist
+        </label>
+        <br>
+        <label for="theta">Theta (in radians):</label>
+        <input id="setTheta" type="range" min="0" max="360" value="0" step="1" onchange="setTheta(this.value)">
+        <span id="range">0</span>
+        <br>
+        <label for="subdivisions">Subdivisions:</label>
+        <input id="subdivisions" type="range" min="0" max="6" value="0" step="1" onchange="setSubdivide(this.value)">
+        <span id="subdiv">0</span>
+    </div>
+    <canvas id="gl-canvas" width="512" height="512">
+        Oops, your browser doesn't support the HTML5 canvas element.
+    </canvas>
+    <script>
+        const canvas = document.getElementById('gl-canvas');
+        const gl = canvas.getContext('webgl');
+        let theta = 0;
+        let twistEnabled = false;
+        let subdivisions = 0;
+
+        function initShaders(gl, vertexShaderSource, fragmentShaderSource) {
+            const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vertexShader, vertexShaderSource);
+            gl.compileShader(vertexShader);
+
+            const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(fragmentShader, fragmentShaderSource);
+            gl.compileShader(fragmentShader);
+
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+
+            gl.useProgram(program);
+            return program;
+        }
+
+        function generateVertices() {
+            const vertices = [];
+            const colors = [];
+
+            const randomColor = () => [Math.random(), Math.random(), Math.random(), 1.0];
+
+            const divideTriangle = (a, b, c, count) => {
+                if (count === 0) {
+                    vertices.push(...a, ...b, ...c);
+                    const color = randomColor();
+                    colors.push(...color, ...color, ...color);
+                } else {
+                    const ab = mix(a, b);
+                    const bc = mix(b, c);
+                    const ca = mix(c, a);
+                    --count;
+                    divideTriangle(a, ab, ca, count);
+                    divideTriangle(ab, b, bc, count);
+                    divideTriangle(ca, bc, c, count);
+                    divideTriangle(ab, bc, ca, count);
+                }
+            };
+
+            const a = [0, 0.8, 0];
+            const b = [-0.8, -0.8, 0];
+            const c = [0.8, -0.8, 0];
+
+            divideTriangle(a, b, c, subdivisions);
+
+            return { vertices: new Float32Array(vertices), colors: new Float32Array(colors) };
+        }
+
+        function mix(a, b) {
+            return a.map((val, idx) => (val + b[idx]) / 2);
+        }
+
+        function render() {
+            const { vertices, colors } = generateVertices();
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            // Buffer for vertices
+            const vertexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+            const a_Position = gl.getAttribLocation(program, 'a_Position');
+            gl.vertexAttribPointer(a_Position, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(a_Position);
+
+            // Buffer for colors
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+
+            const a_Color = gl.getAttribLocation(program, 'a_Color');
+            gl.vertexAttribPointer(a_Color, 4, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(a_Color);
+
+            const u_Theta = gl.getUniformLocation(program, 'u_Theta');
+            gl.uniform1f(u_Theta, twistEnabled ? theta : 0);
+
+            gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 3);
+        }
+
+        function setTwist(value) {
+            twistEnabled = value === 'twist';
+            render();
+        }
+
+        function setTheta(value) {
+            theta = (parseFloat(value) * Math.PI) / 180.0;
+            document.getElementById('range').textContent = value;
+            render();
+        }
+
+        function setSubdivide(value) {
+            subdivisions = parseInt(value);
+            document.getElementById('subdiv').textContent = value;
+            render();
+        }
+
+        const vertexShaderSource = `
+            attribute vec4 a_Position;
+            attribute vec4 a_Color;
+            varying vec4 v_Color;
+            uniform float u_Theta;
+            void main() {
+                float d = length(a_Position.xy);
+                float s = sin(u_Theta * d);
+                float c = cos(u_Theta * d);
+                gl_Position = vec4(
+                    c * a_Position.x - s * a_Position.y,
+                    s * a_Position.x + c * a_Position.y,
+                    0.0, 1.0
+                );
+                v_Color = a_Color;
+            }
+        `;
+
+        const fragmentShaderSource = `
+            precision mediump float;
+            varying vec4 v_Color;
+            void main() {
+                gl_FragColor = v_Color;
+            }
+        `;
+
+        const program = initShaders(gl, vertexShaderSource, fragmentShaderSource);
+        gl.viewport(0, 0, canvas.width, canvas.height); // Set viewport
+        gl.clearColor(1.0, 1.0, 1.0, 1.0); // Background color white
+        render();
+    </script>
+</body>
+</html>
